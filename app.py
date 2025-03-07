@@ -101,7 +101,7 @@ no_go_list = [
     "Elektrodienstleistungen", "Online-Kurse", "Marketingkommunikation",
     "Werbedienstleistungen", "Unternehmensberatung", "Agenturleistungen",
     "Erbringung", "Training", "Kulturorganisationen", "Schmuck", "Accessoires",
-    "E-Books", "Vertriebs-Einheit", "Coachings", "Coaching"
+    "E-Books", "Vertriebs-Einheit", "Coachings", "Coaching", "Grundbesitz", "Vermittlung"
 ]
 
 # -------------------------------------------
