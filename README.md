@@ -1,8 +1,11 @@
+<!-- Logo in top right corner -->
+<div align="right">
+  <img src="logo.png" alt="Logo" style="width: 150px;" />
+</div>
+
 # 🚀 Startup Classifier App
 
 Welcome to the **Startup Classifier App**! This application helps you classify companies from a public register as startups or non‑startups using a combination of weighted positive keywords, a no‑go list, and problematic names. It includes a smart learning mechanism that adjusts keyword weights over time based on your manual labels.
-
-![Logo](logo.png)
 
 ## ✨ Features
 
