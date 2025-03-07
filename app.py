@@ -4,7 +4,7 @@ import os
 import json
 from tqdm import tqdm
 
-# Enable tqdm for pandas (for local progress feedback; you might disable this if it adds overhead)
+# Enable tqdm for pandas (shows progress in the terminal)
 tqdm.pandas()
 
 # -------------------------------------------
@@ -139,11 +139,11 @@ def update_positive_weights(description, learning_rate=0.1):
 # -------------------------------------------
 # Caching Data-Intensive Operations
 # -------------------------------------------
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=True)
 def load_scored_data(scored_csv=SCRORED_FILE):
     return pd.read_csv(scored_csv)
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=True)
 def load_labeled_data(labeled_csv=LABELED_FILE):
     if os.path.exists(labeled_csv):
         return pd.read_csv(labeled_csv)
@@ -156,11 +156,9 @@ def load_labeled_data(labeled_csv=LABELED_FILE):
 def compute_score(row):
     company_name = str(row["company_name"]).lower()
     description = str(row["description"]).lower()
-    
     for pname in problematic_names:
         if pname.lower() in company_name:
             return -100
-
     weights = load_positive_weights()
     score = 0
     for kw, weight in weights.items():
@@ -197,18 +195,19 @@ def refresh_auto_labels(labeled_csv, threshold):
 # -------------------------------------------
 def load_data(scored_csv=SCRORED_FILE, labeled_csv=LABELED_FILE, threshold=0):
     df_full = pd.read_csv(scored_csv)
-    
+
     if not os.path.exists(labeled_csv):
         pd.DataFrame(columns=["company_name", "zip", "description", "is_startup", "source"]).to_csv(labeled_csv, index=False)
-    
+
     df_labeled = pd.read_csv(labeled_csv)
     if "source" not in df_labeled.columns:
         df_labeled["source"] = "manual"
         df_labeled.to_csv(labeled_csv, index=False)
 
+    # Refresh auto labels if threshold is lowered
     if threshold < st.session_state.prev_threshold:
         refresh_auto_labels(labeled_csv, threshold)
-    
+
     df_labeled = pd.read_csv(labeled_csv)
 
     df_no = df_full[df_full["keyword_count"] <= threshold].copy()
@@ -219,10 +218,10 @@ def load_data(scored_csv=SCRORED_FILE, labeled_csv=LABELED_FILE, threshold=0):
             df_no_unlabeled["is_startup"] = "No"
             df_no_unlabeled["source"] = "auto"
             df_no_unlabeled[["company_name", "zip", "description", "is_startup", "source"]].to_csv(
-                labeled_csv, mode="a", header=False, index=False
+                LABELED_FILE, mode="a", header=False, index=False
             )
-    
-    df_labeled = pd.read_csv(labeled_csv)
+
+    df_labeled = pd.read_csv(LABELED_FILE)
 
     df_nonzero = df_full[df_full["keyword_count"] > threshold].copy()
     df_merged = df_nonzero.merge(df_labeled, on=["company_name", "zip", "description"], how="left", indicator=True)
@@ -379,7 +378,6 @@ def main():
 
     if st.session_state.prev_threshold != threshold:
         st.session_state.current_index = 0
-        # Refresh auto labels when lowering the threshold.
         if threshold < st.session_state.prev_threshold:
             refresh_auto_labels(LABELED_FILE, threshold)
         st.session_state.prev_threshold = threshold
