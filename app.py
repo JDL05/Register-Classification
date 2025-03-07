@@ -160,16 +160,29 @@ def process_dataframe(df):
 # Refresh Auto Labels Function
 # -------------------------------------------
 def refresh_auto_labels(labeled_csv, threshold):
+    """
+    Loads the full scored data and the labeled file.
+    Removes auto-labeled rows that now have a score above the new threshold.
+    """
     df_full = pd.read_csv("companies_scored.csv")
     df_labeled = pd.read_csv(labeled_csv)
     auto_df = df_labeled[df_labeled["source"] == "auto"].copy()
     if auto_df.empty:
         return
-    merged = auto_df.merge(df_full[["company_name", "zip", "description", "keyword_count"]],
-                           on=["company_name", "zip", "description"], how="left")
-    to_remove = merged[merged["keyword_count"] > threshold]
-    if not to_remove.empty:
-        df_labeled = df_labeled.drop(to_remove.index)
+    # Iterate over auto-labeled rows and remove those whose current score exceeds threshold.
+    indices_to_remove = []
+    for idx, row in auto_df.iterrows():
+        match = df_full[
+            (df_full["company_name"] == row["company_name"]) &
+            (df_full["zip"] == row["zip"]) &
+            (df_full["description"] == row["description"])
+            ]
+        if not match.empty:
+            current_score = match.iloc[0]["keyword_count"]
+            if current_score > threshold:
+                indices_to_remove.append(idx)
+    if indices_to_remove:
+        df_labeled = df_labeled.drop(indices_to_remove)
         df_labeled.to_csv(labeled_csv, index=False)
 
 # -------------------------------------------
@@ -186,6 +199,7 @@ def load_data(scored_csv="companies_scored.csv", labeled_csv="labeled_results.cs
         df_labeled["source"] = "manual"
         df_labeled.to_csv(labeled_csv, index=False)
 
+    # When lowering the threshold, refresh auto labels.
     if threshold < st.session_state.prev_threshold:
         refresh_auto_labels(labeled_csv, threshold)
 
@@ -312,25 +326,30 @@ def reset_labels(labeled_csv="labeled_results.csv"):
 # Home Screen
 # -------------------------------------------
 def home_screen():
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=150)
     st.title("Welcome to the Startup Classifier App")
     st.markdown("""
         **Overview:**
         
-        This application is designed to help you classify companies from a public register into startups or non-startups. The system uses a combination of weighted positive keywords, no-go keywords, and problematic names to compute a score for each company. Companies with scores above a specified threshold are flagged for manual review.
+        This application helps classify companies from a public register into startups or non-startups.
+        It computes a score for each company using weighted positive keywords, a no-go list, and problematic names.
+        Companies with scores above a chosen threshold are flagged for manual review.
         
         **Smart Learning:**
-        - When you manually label a company as a startup ("Yes"), the weights for the positive keywords that appear in the company's description are increased. This learning mechanism helps the model adapt over time.
+        When you label a company as a startup ("Yes"), the positive keyword weights found in its description are increased,
+        and these adjustments persist across sessions.
         
         **Modes:**
-        - **Upload Data:** Upload a CSV file containing company data.
-        - **Classification Interface:** Manually label companies that exceed the chosen threshold.
-        - **View Classified Startups:** See a list of companies you've classified as startups.
+        - **Home:** This overview and instructions.
+        - **Upload Data:** Upload a CSV file with your company data.
+        - **Classification Interface:** Manually label companies with scores above your threshold.
+        - **View Classified Startups:** See and download the companies you classified as startups.
         
         **Instructions:**
-        1. Start with the **Upload Data** mode to process your CSV file.
-        2. Switch to the **Classification Interface** mode and adjust the threshold as needed.
-        3. Label the companies as startups ("Yes") or not ("No"). Once labeled, companies will not be shown again unless you reset the labels.
-        4. Use the **View Classified Startups** mode to review or download the list of startups.
+        1. Start in **Upload Data** to process your CSV file.
+        2. Then switch to **Classification Interface** to label companies.
+        3. Finally, use **View Classified Startups** to review your results.
     """)
     st.info("Use the sidebar to navigate between modes.")
 
@@ -340,7 +359,6 @@ def home_screen():
 def main():
     st.sidebar.title("Navigation")
 
-    # Add a Home screen mode
     mode = st.sidebar.selectbox(
         "Choose the mode",
         ("Home", "Upload Data", "Classification Interface", "View Classified Startups"),
@@ -348,16 +366,14 @@ def main():
     )
     st.session_state.app_mode = mode
 
-    # Numeric input for threshold (only used in Classification Interface)
     threshold = st.sidebar.number_input(
         "Classification Threshold (Only companies with score > threshold require manual labeling)",
         min_value=0, max_value=100, value=0, step=1
     )
 
-    # When threshold changes, update session state and refresh auto labels if lowering the threshold.
     if st.session_state.prev_threshold != threshold:
         st.session_state.current_index = 0
-        # Only refresh auto labels if threshold is lowered.
+        # Refresh auto labels if threshold is lowered.
         if threshold < st.session_state.prev_threshold:
             refresh_auto_labels("labeled_results.csv", threshold)
         st.session_state.prev_threshold = threshold
