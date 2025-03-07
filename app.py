@@ -4,7 +4,7 @@ import os
 import json
 from tqdm import tqdm
 
-# Enable tqdm for pandas (shows progress in the terminal)
+# Enable tqdm for pandas (for local progress feedback; you might disable this if it adds overhead)
 tqdm.pandas()
 
 # -------------------------------------------
@@ -18,7 +18,14 @@ if "prev_threshold" not in st.session_state:
     st.session_state.prev_threshold = 0
 
 # -------------------------------------------
-# Positive Keywords with Weights (Base)
+# Persistent File Names
+# -------------------------------------------
+WEIGHTS_FILE = "positive_weights.json"
+SCRORED_FILE = "companies_scored.csv"
+LABELED_FILE = "labeled_results.csv"
+
+# -------------------------------------------
+# Base Positive Keywords with Weights (Base)
 # -------------------------------------------
 base_positive_keywords = {
     "Entwicklung": 1,
@@ -105,9 +112,8 @@ problematic_names = [
 ]
 
 # -------------------------------------------
-# Positive Weights Persistence
+# Positive Weights Persistence Functions
 # -------------------------------------------
-WEIGHTS_FILE = "positive_weights.json"
 def load_positive_weights():
     if os.path.exists(WEIGHTS_FILE):
         with open(WEIGHTS_FILE, "r") as f:
@@ -131,12 +137,26 @@ def update_positive_weights(description, learning_rate=0.1):
     return weights
 
 # -------------------------------------------
+# Caching Data-Intensive Operations
+# -------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_scored_data(scored_csv=SCRORED_FILE):
+    return pd.read_csv(scored_csv)
+
+@st.cache_data(show_spinner=False)
+def load_labeled_data(labeled_csv=LABELED_FILE):
+    if os.path.exists(labeled_csv):
+        return pd.read_csv(labeled_csv)
+    else:
+        return pd.DataFrame(columns=["company_name", "zip", "description", "is_startup", "source"])
+
+# -------------------------------------------
 # Score Computation Functions
 # -------------------------------------------
 def compute_score(row):
     company_name = str(row["company_name"]).lower()
     description = str(row["description"]).lower()
-
+    
     for pname in problematic_names:
         if pname.lower() in company_name:
             return -100
@@ -160,49 +180,35 @@ def process_dataframe(df):
 # Refresh Auto Labels Function
 # -------------------------------------------
 def refresh_auto_labels(labeled_csv, threshold):
-    """
-    Loads the full scored data and the labeled file.
-    Removes auto-labeled rows that now have a score above the new threshold.
-    """
-    df_full = pd.read_csv("companies_scored.csv")
+    df_full = pd.read_csv(SCRORED_FILE)
     df_labeled = pd.read_csv(labeled_csv)
     auto_df = df_labeled[df_labeled["source"] == "auto"].copy()
     if auto_df.empty:
         return
-    # Iterate over auto-labeled rows and remove those whose current score exceeds threshold.
-    indices_to_remove = []
-    for idx, row in auto_df.iterrows():
-        match = df_full[
-            (df_full["company_name"] == row["company_name"]) &
-            (df_full["zip"] == row["zip"]) &
-            (df_full["description"] == row["description"])
-            ]
-        if not match.empty:
-            current_score = match.iloc[0]["keyword_count"]
-            if current_score > threshold:
-                indices_to_remove.append(idx)
-    if indices_to_remove:
-        df_labeled = df_labeled.drop(indices_to_remove)
+    merged = auto_df.merge(df_full[["company_name", "zip", "description", "keyword_count"]],
+                           on=["company_name", "zip", "description"], how="left")
+    to_remove = merged[merged["keyword_count"] > threshold]
+    if not to_remove.empty:
+        df_labeled = df_labeled.drop(to_remove.index)
         df_labeled.to_csv(labeled_csv, index=False)
 
 # -------------------------------------------
 # Data Loading & Auto-Labeling
 # -------------------------------------------
-def load_data(scored_csv="companies_scored.csv", labeled_csv="labeled_results.csv", threshold=0):
+def load_data(scored_csv=SCRORED_FILE, labeled_csv=LABELED_FILE, threshold=0):
     df_full = pd.read_csv(scored_csv)
-
+    
     if not os.path.exists(labeled_csv):
         pd.DataFrame(columns=["company_name", "zip", "description", "is_startup", "source"]).to_csv(labeled_csv, index=False)
-
+    
     df_labeled = pd.read_csv(labeled_csv)
     if "source" not in df_labeled.columns:
         df_labeled["source"] = "manual"
         df_labeled.to_csv(labeled_csv, index=False)
 
-    # When lowering the threshold, refresh auto labels.
     if threshold < st.session_state.prev_threshold:
         refresh_auto_labels(labeled_csv, threshold)
-
+    
     df_labeled = pd.read_csv(labeled_csv)
 
     df_no = df_full[df_full["keyword_count"] <= threshold].copy()
@@ -215,7 +221,7 @@ def load_data(scored_csv="companies_scored.csv", labeled_csv="labeled_results.cs
             df_no_unlabeled[["company_name", "zip", "description", "is_startup", "source"]].to_csv(
                 labeled_csv, mode="a", header=False, index=False
             )
-
+    
     df_labeled = pd.read_csv(labeled_csv)
 
     df_nonzero = df_full[df_full["keyword_count"] > threshold].copy()
@@ -237,7 +243,7 @@ def load_data(scored_csv="companies_scored.csv", labeled_csv="labeled_results.cs
     }
     return df_full, df_todo, stats
 
-def save_label(row, label, labeled_file="labeled_results.csv"):
+def save_label(row, label, labeled_file=LABELED_FILE):
     if label == "Yes":
         update_positive_weights(row["description"], learning_rate=0.1)
     new_data = {
@@ -259,8 +265,8 @@ def next_company(row, choice):
 
 def classification_interface(threshold):
     st.title("Classification Interface")
-    labeled_file = "labeled_results.csv"
-    _, df_todo, stats = load_data("companies_scored.csv", labeled_file, threshold)
+    labeled_file = LABELED_FILE
+    _, df_todo, stats = load_data(SCRORED_FILE, labeled_file, threshold)
 
     st.markdown("### Statistics")
     col1, col2, col3, col4 = st.columns(4)
@@ -295,7 +301,7 @@ def classification_interface(threshold):
 # -------------------------------------------
 def view_positive_startups():
     st.title("View Classified Startups")
-    labeled_file = "labeled_results.csv"
+    labeled_file = LABELED_FILE
     if not os.path.exists(labeled_file):
         st.error("No classifications have been made yet!")
         return
@@ -316,7 +322,7 @@ def view_positive_startups():
 # -------------------------------------------
 # Reset Labels Button
 # -------------------------------------------
-def reset_labels(labeled_csv="labeled_results.csv"):
+def reset_labels(labeled_csv=LABELED_FILE):
     if os.path.exists(labeled_csv):
         os.remove(labeled_csv)
     st.session_state.current_index = 0
@@ -337,14 +343,14 @@ def home_screen():
         Companies with scores above a chosen threshold are flagged for manual review.
         
         **Smart Learning:**
-        When you label a company as a startup ("Yes"), the positive keyword weights found in its description are increased,
-        and these adjustments persist across sessions.
+        When you label a company as a startup ("Yes"), the weights for the positive keywords in its description are increased.
+        These adjustments persist across sessions.
         
         **Modes:**
         - **Home:** This overview and instructions.
         - **Upload Data:** Upload a CSV file with your company data.
         - **Classification Interface:** Manually label companies with scores above your threshold.
-        - **View Classified Startups:** See and download the companies you classified as startups.
+        - **View Classified Startups:** See and download the list of startups you've classified.
         
         **Instructions:**
         1. Start in **Upload Data** to process your CSV file.
@@ -373,9 +379,9 @@ def main():
 
     if st.session_state.prev_threshold != threshold:
         st.session_state.current_index = 0
-        # Refresh auto labels if threshold is lowered.
+        # Refresh auto labels when lowering the threshold.
         if threshold < st.session_state.prev_threshold:
-            refresh_auto_labels("labeled_results.csv", threshold)
+            refresh_auto_labels(LABELED_FILE, threshold)
         st.session_state.prev_threshold = threshold
 
     if st.sidebar.button("Reset All Labels"):
@@ -399,13 +405,13 @@ def main():
                 return
             st.write("File uploaded successfully. Processing your data... (Check your terminal for progress)")
             df_processed = process_dataframe(df)
-            output_filename = "companies_scored.csv"
+            output_filename = SCRORED_FILE
             output_path = os.path.join(os.getcwd(), output_filename)
             df_processed.to_csv(output_path, index=False)
             st.success(f"Processing complete! The file has been saved as '{output_filename}' in {os.getcwd()}.")
             st.info("Now switch to the 'Classification Interface' mode from the sidebar to begin labeling.")
     elif mode == "Classification Interface":
-        if not os.path.exists("companies_scored.csv"):
+        if not os.path.exists(SCRORED_FILE):
             st.error("The file 'companies_scored.csv' does not exist. Please upload and process a CSV file first.")
         else:
             classification_interface(threshold)
