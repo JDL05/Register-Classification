@@ -40,17 +40,16 @@ Welcome to the **Startup Classifier App**! This application helps you classify c
    cd register-classification
 
 2. **Create and Activate a Virtual Environment (Optional but Recommended):**
+   ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-3. **Install Dependencies:**
+4. **Install Dependencies:**
+   ```bash
    pip install -r requirements.txt
 
 ## 🏃 Running the App Locally
-
-To run the app on your local machine:
-
-streamlit run app.py
+    streamlit run app.py
 
 ## 🌐 Deployment
 
@@ -66,11 +65,9 @@ streamlit run app.py
 
 ## 📑 Project Structure
 
+```bash
 ├── app.py                   # Main application code
 ├── requirements.txt         # List of dependencies (do NOT include 'os')
 ├── logo.png                 # Logo image (optional)
 ├── positive_weights.json    # Persistent file for positive keyword weights (created at runtime)
 └── labeled_results.csv      # Stores user classifications (created at runtime)
-
-
-
